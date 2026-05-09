@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  SUPERVISOR
+  AGENT
+}
+
+enum TicketStatus {
+  PENDING
+  OPEN
+  CLOSED
+  TRANSFERRED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String
+  role          Role      @default(AGENT)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tickets       Ticket[]
+  messages      Message[]
+  departments   UserDepartment[]
+}
+
+model Department {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  users       UserDepartment[]
+  tickets     Ticket[]
+}
+
+model UserDepartment {
+  userId       String
+  departmentId String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, departmentId])
+}
+
+model Contact {
+  id          String    @id @default(cuid())
+  name        String
+  number      String    @unique // WhatsApp number
+  profilePicUrl String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tickets     Ticket[]
+}
+
+model Instance {
+  id          String    @id @default(cuid())
+  name        String
+  status      String    @default("DISCONNECTED")
+  instanceId  String    @unique // ID na Evolution API
+  token       String?   // Token da API da Evolution
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tickets     Ticket[]
+}
+
+model Ticket {
+  id           String       @id @default(cuid())
+  status       TicketStatus @default(PENDING)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  contactId    String
+  contact      Contact      @relation(fields: [contactId], references: [id])
+  
+  userId       String?
+  user         User?        @relation(fields: [userId], references: [id])
+  
+  departmentId String?
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  
+  instanceId   String
+  instance     Instance     @relation(fields: [instanceId], references: [id])
+
+  messages     Message[]
+  tags         TicketTag[]
+}
+
+model Message {
+  id          String   @id @default(cuid())
+  body        String   @db.Text
+  fromMe      Boolean  @default(false)
+  messageId   String   @unique // ID of the message in WhatsApp/Evolution API
+  mediaUrl    String?
+  mediaType   String?
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ticketId    String
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   @default("#000000")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets   TicketTag[]
+}
+
+model TicketTag {
+  ticketId String
+  tagId    String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag      Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, tagId])
+}
+
+model QuickReply {
+  id        String   @id @default(cuid())
+  shortcut  String   @unique
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

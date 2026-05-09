@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Chatbot Multi - Sistema de Multiatendimento para WhatsApp
 
-## Getting Started
+Este é um sistema completo de multiatendimento para WhatsApp, integrado com a Evolution API. Permite que múltiplos atendentes gerenciem conversas simultâneas em uma única interface web.
 
-First, run the development server:
+## 🚀 Funcionalidades
 
+- **Caixa de Entrada Unificada**: Interface intuitiva similar ao WhatsApp Web para gerenciar conversas.
+- **Múltiplos Dispositivos**: Suporte a várias instâncias do WhatsApp através da Evolution API.
+- **WebSockets em Tempo Real**: Mensagens recebidas e enviadas atualizam instantaneamente na tela do usuário usando Socket.io.
+- **Distribuição de Atendimento**: Criação de filas e departamentos. Transferência de chats entre atendentes.
+- **Respostas Rápidas**: Atalhos pré-cadastrados para agilizar o atendimento.
+- **Gestão de Etiquetas**: Organize conversas usando tags personalizadas.
+- **Autenticação e Permissões**: Sistema de login com NextAuth (Admin, Supervisor e Atendente).
+
+## 🛠️ Tecnologias Utilizadas
+
+- **Frontend/Backend**: Next.js 14 (App Router)
+- **Estilização**: Tailwind CSS + Lucide Icons
+- **Banco de Dados**: PostgreSQL
+- **ORM**: Prisma
+- **Tempo Real**: Socket.io + Servidor Node customizado
+- **Integração WhatsApp**: Evolution API (via Webhooks e Endpoints)
+- **Autenticação**: NextAuth.js com JWT e Bcrypt
+
+## ⚙️ Pré-requisitos
+
+1. **Node.js** (v18+)
+2. **PostgreSQL** (Rodando localmente ou na nuvem)
+3. **Evolution API** instalada (ex: via EasyPanel na VPS)
+
+## 📦 Como Instalar e Rodar
+
+1. Clone o repositório ou acesse a pasta do projeto.
+2. Instale as dependências:
+   ```bash
+   npm install
+   ```
+3. Configure o arquivo `.env`:
+   Crie um arquivo `.env` na raiz do projeto e defina as variáveis:
+   ```env
+   DATABASE_URL="postgresql://usuario:senha@localhost:5432/chatbot_multi?schema=public"
+   NEXTAUTH_SECRET="seu-segredo-super-seguro"
+   NEXTAUTH_URL="http://localhost:3000"
+   EVOLUTION_API_URL="http://ip-da-sua-vps:8080"
+   EVOLUTION_API_KEY="sua-api-key-global"
+   ```
+4. Execute as migrations do banco de dados:
+   ```bash
+   npx prisma migrate dev --name init
+   ```
+5. Inicie o servidor de desenvolvimento (que roda junto com o Socket.io):
+   ```bash
+   npm run dev
+   ```
+6. Acesse `http://localhost:3000` no navegador.
+
+## 📖 Manual do Usuário (Resumo)
+
+### 1. Administradores
+- Têm acesso a todas as abas. Podem criar novos usuários (atendentes/supervisores), criar departamentos, cadastrar instâncias do WhatsApp (Evolution API) e ver relatórios globais.
+
+### 2. Supervisores
+- Podem ver o desempenho dos atendentes de seus departamentos e transferir tickets livremente, além de auditar conversas.
+
+### 3. Atendentes
+- Ao fazer login, são direcionados para a aba de **Atendimentos**.
+- Na barra lateral esquerda, visualizam as conversas atribuídas a eles.
+- Podem usar a caixa de texto inferior para responder aos clientes, enviar mídias (clicando no ícone do clipe) e usar o atalho `/` para respostas rápidas.
+- Para transferir um atendimento, basta clicar nos três pontos verticais (canto superior direito do chat) e selecionar "Transferir".
+
+## 🔌 Configurando a Evolution API
+
+Para que o sistema receba mensagens, você precisa configurar um Webhook na sua instância da Evolution API apontando para:
+`http://seu-dominio.com/api/webhooks/evolution`
+
+Eventos necessários: `messages.upsert`, `connection.update`.
+
+## 🧪 Testes
+
+Para rodar os testes unitários (Vitest/Jest - a ser configurado):
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run test
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+*Desenvolvido seguindo as melhores práticas de Clean Code e arquitetura modular.*
