@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     const normalizado = lista.map((c) => ({
       ...c,
       remoteJid: (c.remoteJid as string | undefined) || (c.id as string | undefined) || "",
-    }));
+    })) as Record<string, unknown>[];
 
     // Enrich names from our contacts table (webhook stores pushName there)
     const numbers = normalizado
