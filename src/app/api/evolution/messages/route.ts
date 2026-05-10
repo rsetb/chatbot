@@ -4,8 +4,15 @@ import { EvolutionService } from "@/services/evolution";
 function extrairRegistros(resposta: any) {
   if (Array.isArray(resposta)) return { total: resposta.length, records: resposta };
   const mensagens = resposta?.messages;
+  const mensagensInternas = mensagens?.messages;
   if (mensagens && Array.isArray(mensagens.records)) {
     return { total: Number(mensagens.total ?? mensagens.records.length), records: mensagens.records };
+  }
+  if (mensagensInternas && Array.isArray(mensagensInternas.records)) {
+    return {
+      total: Number(mensagensInternas.total ?? mensagensInternas.records.length),
+      records: mensagensInternas.records,
+    };
   }
   if (mensagens && Array.isArray(mensagens)) return { total: mensagens.length, records: mensagens };
   if (Array.isArray(resposta?.records)) return { total: Number(resposta.total ?? resposta.records.length), records: resposta.records };

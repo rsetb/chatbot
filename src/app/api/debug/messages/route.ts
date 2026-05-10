@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import axios from "axios";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 const evolutionApi = axios.create({
   baseURL: process.env.EVOLUTION_API_URL || "http://localhost:8080",
@@ -9,9 +11,21 @@ const evolutionApi = axios.create({
   },
 });
 
+async function exigirAdmin() {
+  const session = await getServerSession(authOptions);
+  const role = (session?.user as any)?.role as string | undefined;
+  if (!session?.user || role !== "ADMIN") return null;
+  return session;
+}
+
 // GET /api/debug/messages?instance=adc&jid=123@lid
 // Retorna a resposta bruta da Evolution API para findMessages
 export async function GET(req: Request) {
+  const session = await exigirAdmin();
+  if (!session) {
+    return NextResponse.json({ erro: "Não autorizado" }, { status: 401 });
+  }
+
   const { searchParams } = new URL(req.url);
   const instance = searchParams.get("instance") || process.env.EVOLUTION_INSTANCE_NAME || "adc";
   const jid = searchParams.get("jid");

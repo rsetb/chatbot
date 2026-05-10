@@ -5,22 +5,24 @@ import { prisma } from '@/lib/prisma';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    console.log('Webhook Evolution Recebido:', JSON.stringify(body, null, 2));
 
-    const { event, instance, data } = body;
+    const eventRaw = (body?.event || body?.evento || body?.type || "").toString();
+    const event = eventRaw.toLowerCase();
+    const instance = (body?.instance || body?.instanceName || body?.instanceId || "").toString();
+    const data = body?.data ?? body;
 
     // Tratamento para nova mensagem recebida
-    if (event === 'messages.upsert') {
-      const messageData = data.messages[0];
+    if (event === "messages.upsert" || event === "messages_upsert") {
+      const messageData = data?.messages?.[0] ?? data?.message;
       
-      // Ignorar mensagens enviadas por você mesmo ou de status
-      if (!messageData || messageData.key.fromMe || messageData.key.remoteJid === 'status@broadcast') {
+      // Ignorar mensagens de status
+      if (!messageData || messageData.key?.remoteJid === "status@broadcast") {
         return NextResponse.json({ success: true });
       }
 
-      const remoteJid = messageData.key.remoteJid;
-      const number = remoteJid.split('@')[0];
-      const messageId = messageData.key.id;
+      const remoteJid = messageData.key?.remoteJid;
+      const number = typeof remoteJid === "string" && remoteJid.includes("@") ? remoteJid.split("@")[0] : (remoteJid || "desconhecido");
+      const messageId = messageData.key?.id || messageData.id || `${Date.now()}`;
       
       // Extrair o texto da mensagem (pode variar dependendo do tipo da mensagem)
       const text = messageData.message?.conversation || 
@@ -87,7 +89,7 @@ export async function POST(req: Request) {
         data: {
           messageId,
           body: text,
-          fromMe: false,
+          fromMe: Boolean(messageData.key?.fromMe),
           ticketId: ticket.id,
         },
       });
