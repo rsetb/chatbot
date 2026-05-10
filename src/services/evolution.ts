@@ -71,4 +71,14 @@ export class EvolutionService {
       throw error;
     }
   }
+
+  static async fetchInstances() {
+    try {
+      const response = await evolutionApi.get(`/instance/fetchInstances`);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar instâncias via Evolution API:', error);
+      throw error;
+    }
+  }
 }
