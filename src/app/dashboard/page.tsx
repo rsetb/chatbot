@@ -64,6 +64,12 @@ export default function DashboardPage() {
     remoteJidRef.current = remoteJidMensagens;
   }, [remoteJidMensagens]);
 
+  // ref para auto-scroll ao final das mensagens
+  const mensagensEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [mensagens]);
+
   const carregarChats = useCallback(async () => {
     setCarregandoChats(true);
     try {
@@ -113,7 +119,7 @@ export default function DashboardPage() {
   // Polling de fallback a cada 30s (caso socket.io não receba o evento)
   useEffect(() => {
     if (!remoteJidMensagens) return;
-    const id = window.setInterval(() => recarregarMensagens(remoteJidMensagens), 30000);
+    const id = window.setInterval(() => recarregarMensagens(remoteJidMensagens), 7000);
     return () => window.clearInterval(id);
   }, [remoteJidMensagens, recarregarMensagens]);
 
@@ -285,6 +291,7 @@ export default function DashboardPage() {
           ) : (
             <div className="text-sm text-gray-600">Nenhuma mensagem encontrada para esta conversa.</div>
           )}
+          <div ref={mensagensEndRef} />
         </div>
 
         {/* Área de Input */}
