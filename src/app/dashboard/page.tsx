@@ -1,41 +1,94 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { io, Socket } from "socket.io-client";
+import { useEffect, useMemo, useState } from "react";
 import { Send, User, Paperclip, MoreVertical } from "lucide-react";
 
+type ChatEvolution = {
+  id?: string;
+  remoteJid?: string;
+  name?: string;
+  pushName?: string;
+  unreadCount?: number;
+  updatedAt?: string;
+  lastMessage?: any;
+};
+
+type MensagemEvolution = {
+  key?: { id?: string; remoteJid?: string; fromMe?: boolean };
+  messageTimestamp?: number;
+  pushName?: string;
+  message?: any;
+};
+
+function extrairTextoMensagem(m: MensagemEvolution): string {
+  const msg = m.message || {};
+  return (
+    msg.conversation ||
+    msg.extendedTextMessage?.text ||
+    msg.imageMessage?.caption ||
+    msg.videoMessage?.caption ||
+    msg.documentMessage?.caption ||
+    "[mensagem]"
+  );
+}
+
 export default function DashboardPage() {
-  const [socket, setSocket] = useState<Socket | null>(null);
-  const [messages, setMessages] = useState<any[]>([]);
+  const [carregandoChats, setCarregandoChats] = useState(false);
+  const [chats, setChats] = useState<ChatEvolution[]>([]);
+  const [chatSelecionado, setChatSelecionado] = useState<ChatEvolution | null>(null);
+  const [carregandoMensagens, setCarregandoMensagens] = useState(false);
+  const [mensagens, setMensagens] = useState<MensagemEvolution[]>([]);
   const [input, setInput] = useState("");
+  const [busca, setBusca] = useState("");
 
   useEffect(() => {
-    // Connect to local socket server
-    const socketInstance = io();
-    setSocket(socketInstance);
+    async function carregarChats() {
+      setCarregandoChats(true);
+      try {
+        const res = await fetch("/api/evolution/chats?instance=adc", { cache: "no-store" });
+        const json = await res.json();
+        const lista = Array.isArray(json?.chats) ? json.chats : json?.chats?.data || json?.chats || [];
+        setChats(Array.isArray(lista) ? lista : []);
+      } catch {
+        setChats([]);
+      } finally {
+        setCarregandoChats(false);
+      }
+    }
 
-    socketInstance.on("connect", () => {
-      console.log("Connected to WebSocket");
-    });
-
-    socketInstance.on("newMessage", (data) => {
-      setMessages((prev) => [...prev, data.message]);
-    });
-
-    return () => {
-      socketInstance.disconnect();
-    };
+    carregarChats();
   }, []);
 
-  const sendMessage = () => {
-    if (!input.trim() || !socket) return;
-    
-    const newMsg = { id: Date.now().toString(), body: input, fromMe: true, createdAt: new Date() };
-    setMessages((prev) => [...prev, newMsg]);
-    // In a real app, you would also post to an API that calls Evolution API
-    // socket.emit("sendMessage", { ticketId: "...", text: input });
-    setInput("");
-  };
+  useEffect(() => {
+    async function carregarMensagens(remoteJid: string) {
+      setCarregandoMensagens(true);
+      try {
+        const url = `/api/evolution/messages?instance=adc&remoteJid=${encodeURIComponent(remoteJid)}&limit=50`;
+        const res = await fetch(url, { cache: "no-store" });
+        const json = await res.json();
+        const lista = Array.isArray(json?.messages) ? json.messages : json?.messages?.data || json?.messages || [];
+        const arr = Array.isArray(lista) ? (lista as MensagemEvolution[]) : [];
+        setMensagens(arr.slice().reverse());
+      } catch {
+        setMensagens([]);
+      } finally {
+        setCarregandoMensagens(false);
+      }
+    }
+
+    if (chatSelecionado?.remoteJid) {
+      carregarMensagens(chatSelecionado.remoteJid);
+    }
+  }, [chatSelecionado?.remoteJid]);
+
+  const chatsFiltrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    if (!termo) return chats;
+    return chats.filter((c) => {
+      const nome = (c.name || c.pushName || c.remoteJid || "").toLowerCase();
+      return nome.includes(termo);
+    });
+  }, [busca, chats]);
 
   return (
     <div className="flex h-full">
@@ -45,18 +98,46 @@ export default function DashboardPage() {
           <input 
             type="text" 
             placeholder="Buscar conversas..." 
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
             className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
           />
         </div>
         <div className="flex-1 overflow-y-auto">
-          {/* Item de conversa mockado */}
-          <div className="p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 bg-blue-50">
-            <div className="flex justify-between items-start">
-              <h4 className="font-semibold text-gray-800">João Silva</h4>
-              <span className="text-xs text-gray-500">10:42</span>
-            </div>
-            <p className="text-sm text-gray-600 truncate mt-1">Preciso de ajuda com meu pedido.</p>
-          </div>
+          {carregandoChats ? (
+            <div className="p-4 text-sm text-gray-600">Carregando conversas...</div>
+          ) : chatsFiltrados.length ? (
+            chatsFiltrados.map((c, idx) => {
+              const nome = c.name || c.pushName || c.remoteJid || `Chat ${idx + 1}`;
+              const ativo = chatSelecionado?.remoteJid && c.remoteJid === chatSelecionado.remoteJid;
+              return (
+                <button
+                  key={(c.id || c.remoteJid || String(idx)) as string}
+                  onClick={() => setChatSelecionado(c)}
+                  className={`w-full text-left p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${ativo ? "bg-blue-50" : ""}`}
+                >
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-semibold text-gray-800">{nome}</h4>
+                    {typeof c.unreadCount === "number" && c.unreadCount > 0 ? (
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                        {c.unreadCount}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500">&nbsp;</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-600 truncate mt-1">
+                    {c.lastMessage?.message?.conversation ||
+                      c.lastMessage?.message?.extendedTextMessage?.text ||
+                      c.lastMessage?.message?.imageMessage?.caption ||
+                      ""}
+                  </p>
+                </button>
+              );
+            })
+          ) : (
+            <div className="p-4 text-sm text-gray-600">Nenhuma conversa encontrada.</div>
+          )}
         </div>
       </div>
 
@@ -69,8 +150,12 @@ export default function DashboardPage() {
               <User className="text-gray-500" />
             </div>
             <div>
-              <h2 className="font-semibold text-gray-800">João Silva</h2>
-              <span className="text-xs text-green-500">Online</span>
+              <h2 className="font-semibold text-gray-800">
+                {chatSelecionado?.name || chatSelecionado?.pushName || chatSelecionado?.remoteJid || "Selecione uma conversa"}
+              </h2>
+              <span className="text-xs text-gray-500">
+                {chatSelecionado?.remoteJid ? chatSelecionado.remoteJid : ""}
+              </span>
             </div>
           </div>
           <div className="flex gap-4">
@@ -82,23 +167,33 @@ export default function DashboardPage() {
 
         {/* Histórico de Mensagens */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="flex justify-start">
-            <div className="bg-white p-3 rounded-lg rounded-tl-none shadow-sm max-w-md">
-              <p className="text-gray-800">Olá, preciso de ajuda com meu pedido.</p>
-              <span className="text-[10px] text-gray-500 mt-1 block text-right">10:42</span>
-            </div>
-          </div>
-          
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
-              <div className={`p-3 rounded-lg shadow-sm max-w-md ${msg.fromMe ? 'bg-[#d9fdd3] rounded-tr-none' : 'bg-white rounded-tl-none'}`}>
-                <p className="text-gray-800">{msg.body}</p>
-                <span className="text-[10px] text-gray-500 mt-1 block text-right">
-                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-            </div>
-          ))}
+          {!chatSelecionado?.remoteJid ? (
+            <div className="text-sm text-gray-600">Selecione uma conversa para ver o histórico.</div>
+          ) : carregandoMensagens ? (
+            <div className="text-sm text-gray-600">Carregando mensagens...</div>
+          ) : mensagens.length ? (
+            mensagens.map((m, idx) => {
+              const fromMe = Boolean(m.key?.fromMe);
+              const texto = extrairTextoMensagem(m);
+              const ts = m.messageTimestamp ? new Date(m.messageTimestamp * 1000) : null;
+              return (
+                <div key={m.key?.id || String(idx)} className={`flex ${fromMe ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`p-3 rounded-lg shadow-sm max-w-md ${
+                      fromMe ? "bg-[#d9fdd3] rounded-tr-none" : "bg-white rounded-tl-none"
+                    }`}
+                  >
+                    <p className="text-gray-800">{texto}</p>
+                    <span className="text-[10px] text-gray-500 mt-1 block text-right">
+                      {ts ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="text-sm text-gray-600">Nenhuma mensagem encontrada para esta conversa.</div>
+          )}
         </div>
 
         {/* Área de Input */}
@@ -110,12 +205,12 @@ export default function DashboardPage() {
             type="text" 
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+            onKeyDown={(e) => e.key === 'Enter' && setInput((v) => v)}
             placeholder="Digite uma mensagem..." 
             className="flex-1 p-3 border-none bg-gray-100 rounded-lg focus:outline-none"
           />
           <button 
-            onClick={sendMessage}
+            onClick={() => setInput("")}
             className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors"
           >
             <Send className="w-5 h-5" />

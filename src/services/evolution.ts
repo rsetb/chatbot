@@ -81,4 +81,34 @@ export class EvolutionService {
       throw error;
     }
   }
+
+  static async findChats(instanceName: string) {
+    try {
+      const response = await evolutionApi.post(`/chat/findChats/${instanceName}`, {});
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar chats via Evolution API:', error);
+      throw error;
+    }
+  }
+
+  static async findMessages(instanceName: string, remoteJid: string, limit = 50) {
+    try {
+      const response = await evolutionApi.post(`/chat/findMessages/${instanceName}`, {
+        where: {
+          key: {
+            remoteJid,
+          },
+        },
+        limit,
+        orderBy: {
+          messageTimestamp: 'desc',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar mensagens via Evolution API:', error);
+      throw error;
+    }
+  }
 }
