@@ -26,6 +26,13 @@ type MensagemEvolution = {
 
 type Agent = { id: string; name: string; email: string; role: string };
 
+type PendingFile = {
+  file: File;
+  base64: string;
+  mimetype: string;
+  previewUrl: string | null;
+};
+
 function normalizarListaResposta(valor: any): any[] {
   if (Array.isArray(valor)) return valor;
   if (!valor || typeof valor !== "object") return [];
@@ -177,6 +184,141 @@ function ModalTransferir({
   );
 }
 
+// ─── Inline media renderer ───────────────────────────────────────────────────
+
+function MessageContent({ m, instance }: { m: MensagemEvolution; instance: string }) {
+  const tipo = m.messageType;
+  const msg = m.message || {};
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [carregando, setCarregando] = useState(false);
+  const [erroMedia, setErroMedia] = useState(false);
+
+  async function fetchMedia() {
+    if (mediaUrl || carregando) return;
+    setCarregando(true);
+    setErroMedia(false);
+    try {
+      const res = await fetch("/api/evolution/media", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instance, message: m }),
+      });
+      const json = await res.json();
+      if (json.dataUrl) setMediaUrl(json.dataUrl);
+      else setErroMedia(true);
+    } catch {
+      setErroMedia(true);
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  // Auto-carrega áudio
+  useEffect(() => {
+    if (tipo === "audioMessage" || tipo === "pttMessage") void fetchMedia();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (tipo === "audioMessage" || tipo === "pttMessage") {
+    if (mediaUrl) return <audio controls src={mediaUrl} className="max-w-[240px] mt-1" />;
+    if (erroMedia) return <span className="text-xs text-red-400">Falha ao carregar áudio</span>;
+    return <span className="text-xs text-zinc-400 animate-pulse">🎵 Carregando áudio...</span>;
+  }
+
+  if (tipo === "imageMessage") {
+    const thumb = msg.imageMessage?.jpegThumbnail as string | undefined;
+    const caption = msg.imageMessage?.caption as string | undefined;
+    return (
+      <div className="space-y-1">
+        <button
+          onClick={fetchMedia}
+          disabled={carregando}
+          className="relative block rounded-lg overflow-hidden"
+        >
+          {mediaUrl ? (
+            <img
+              src={mediaUrl}
+              alt="Imagem"
+              className="max-w-[260px] rounded-lg cursor-zoom-in"
+              onClick={(e) => { e.stopPropagation(); window.open(mediaUrl, "_blank"); }}
+            />
+          ) : thumb ? (
+            <>
+              <img src={`data:image/jpeg;base64,${thumb}`} alt="" className="max-w-[260px] rounded-lg blur-sm opacity-80" />
+              <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-white text-xs font-medium rounded-lg">
+                {carregando ? "Carregando..." : "📷 Toque para ver"}
+              </span>
+            </>
+          ) : (
+            <div className="w-48 h-32 bg-zinc-200 rounded-lg flex items-center justify-center text-3xl">
+              {carregando ? <span className="text-xs text-zinc-500">Carregando...</span> : "📷"}
+            </div>
+          )}
+        </button>
+        {caption && <p className="text-gray-800 text-sm">{caption}</p>}
+      </div>
+    );
+  }
+
+  if (tipo === "videoMessage") {
+    const caption = msg.videoMessage?.caption as string | undefined;
+    return (
+      <div className="space-y-1">
+        {mediaUrl ? (
+          <video controls src={mediaUrl} className="max-w-[260px] rounded-lg" />
+        ) : (
+          <button
+            onClick={fetchMedia}
+            disabled={carregando}
+            className="flex items-center gap-2 bg-zinc-100 rounded-lg px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-200"
+          >
+            🎬 {carregando ? "Carregando..." : "Ver vídeo"}
+          </button>
+        )}
+        {caption && <p className="text-gray-800 text-sm">{caption}</p>}
+      </div>
+    );
+  }
+
+  if (tipo === "documentMessage" || tipo === "documentWithCaptionMessage") {
+    const doc = msg.documentMessage ?? msg.documentWithCaptionMessage?.message?.documentMessage ?? {};
+    const fileName: string = doc.fileName ?? doc.title ?? "Documento";
+    return mediaUrl ? (
+      <a
+        href={mediaUrl}
+        download={fileName}
+        className="flex items-center gap-2 bg-zinc-100 rounded-lg px-3 py-2 text-sm text-blue-600 hover:bg-zinc-200"
+      >
+        📎 {fileName}
+      </a>
+    ) : (
+      <button
+        onClick={fetchMedia}
+        disabled={carregando}
+        className="flex items-center gap-2 bg-zinc-100 rounded-lg px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-200"
+      >
+        📎 {carregando ? "Carregando..." : fileName}
+      </button>
+    );
+  }
+
+  if (tipo === "stickerMessage") {
+    return mediaUrl ? (
+      <img src={mediaUrl} alt="Sticker" className="w-28 h-28" />
+    ) : (
+      <button onClick={fetchMedia} disabled={carregando} className="text-sm text-zinc-500">
+        🎭 {carregando ? "Carregando..." : "Ver sticker"}
+      </button>
+    );
+  }
+
+  // texto / reação / enquete / location / outros
+  const texto = extrairTextoMensagem(m);
+  if (!texto) return null;
+  return <p className="text-gray-800 whitespace-pre-wrap">{texto}</p>;
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
 export default function DashboardPage() {
   const [carregandoChats, setCarregandoChats] = useState(false);
   const [chats, setChats] = useState<ChatEvolution[]>([]);
@@ -190,9 +332,28 @@ export default function DashboardPage() {
   const [busca, setBusca] = useState("");
   const [fotoPerfil, setFotoPerfil] = useState<string | null>(null);
   const [modalTransferir, setModalTransferir] = useState(false);
+  const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
 
   const remoteJidRef = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { remoteJidRef.current = remoteJidMensagens; }, [remoteJidMensagens]);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setPendingFile({
+        file,
+        base64: result.split(",")[1],
+        mimetype: file.type,
+        previewUrl: file.type.startsWith("image/") ? result : null,
+      });
+    };
+    reader.readAsDataURL(file);
+  }, []);
 
   const mensagensEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -273,10 +434,36 @@ export default function DashboardPage() {
 
   const enviarMensagem = useCallback(async () => {
     if (!remoteJidMensagens) return;
-    const texto = input.trim();
-    if (!texto) return;
     setEnviando(true);
     try {
+      // Envio de mídia
+      if (pendingFile) {
+        const res = await fetch("/api/evolution/send-media", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            instance: INSTANCE,
+            remoteJid: remoteJidMensagens,
+            base64: pendingFile.base64,
+            mimetype: pendingFile.mimetype,
+            fileName: pendingFile.file.name,
+            caption: input.trim() || undefined,
+          }),
+        });
+        if (!res.ok) {
+          const json = await res.json().catch(() => null);
+          setErroMensagens(`Falha ao enviar: ${json?.erro ?? `HTTP ${res.status}`}`);
+          return;
+        }
+        setPendingFile(null);
+        setInput("");
+        await recarregarMensagens(remoteJidMensagens);
+        return;
+      }
+
+      // Envio de texto
+      const texto = input.trim();
+      if (!texto) return;
       const res = await fetch("/api/evolution/send-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -297,7 +484,7 @@ export default function DashboardPage() {
     } finally {
       setEnviando(false);
     }
-  }, [input, remoteJidMensagens, recarregarMensagens]);
+  }, [input, remoteJidMensagens, recarregarMensagens, pendingFile]);
 
   const chatsFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -406,7 +593,6 @@ export default function DashboardPage() {
           ) : mensagens.length ? (
             mensagens.map((m, idx) => {
               const fromMe = Boolean(m.key?.fromMe);
-              const texto = extrairTextoMensagem(m);
               const ts = m.messageTimestamp ? new Date(m.messageTimestamp * 1000) : null;
               return (
                 <div key={m.key?.id || String(idx)} className={`flex ${fromMe ? "justify-end" : "justify-start"}`}>
@@ -415,7 +601,7 @@ export default function DashboardPage() {
                       fromMe ? "bg-[#d9fdd3] rounded-tr-none" : "bg-white rounded-tl-none"
                     }`}
                   >
-                    <p className="text-gray-800 whitespace-pre-wrap">{texto}</p>
+                    <MessageContent m={m} instance={INSTANCE} />
                     <span className="text-[10px] text-gray-400 mt-1 block text-right">
                       {ts ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
                     </span>
@@ -429,9 +615,42 @@ export default function DashboardPage() {
           <div ref={mensagensEndRef} />
         </div>
 
+        {/* Preview arquivo pendente */}
+        {pendingFile && (
+          <div className="bg-white px-4 pt-3 border-t border-gray-100">
+            <div className="flex items-center gap-3 bg-zinc-50 border border-zinc-200 rounded-lg p-2">
+              {pendingFile.previewUrl ? (
+                <img src={pendingFile.previewUrl} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0" />
+              ) : (
+                <div className="w-12 h-12 rounded bg-zinc-200 flex items-center justify-center text-2xl flex-shrink-0">
+                  {pendingFile.mimetype.startsWith("audio/") ? "🎵" : pendingFile.mimetype.startsWith("video/") ? "🎬" : "📎"}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-zinc-800 truncate">{pendingFile.file.name}</p>
+                <p className="text-xs text-zinc-500">{(pendingFile.file.size / 1024).toFixed(1)} KB</p>
+              </div>
+              <button onClick={() => setPendingFile(null)} className="text-zinc-400 hover:text-red-500 p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Input */}
         <div className="bg-white p-4 border-t border-gray-200 flex items-center gap-3">
-          <button className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100"
+            title="Enviar arquivo"
+          >
             <Paperclip className="w-5 h-5" />
           </button>
           <input
@@ -439,11 +658,11 @@ export default function DashboardPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void enviarMensagem(); } }}
-            placeholder="Digite uma mensagem..."
+            placeholder={pendingFile ? "Legenda (opcional)..." : "Digite uma mensagem..."}
             className="flex-1 p-3 border-none bg-gray-100 rounded-lg focus:outline-none text-sm"
           />
           <button
-            disabled={!remoteJidMensagens || enviando}
+            disabled={!remoteJidMensagens || enviando || (!input.trim() && !pendingFile)}
             onClick={() => void enviarMensagem()}
             className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
