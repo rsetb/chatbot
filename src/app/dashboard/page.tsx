@@ -50,6 +50,7 @@ export default function DashboardPage() {
   const [carregandoMensagens, setCarregandoMensagens] = useState(false);
   const [mensagens, setMensagens] = useState<MensagemEvolution[]>([]);
   const [erroMensagens, setErroMensagens] = useState<string | null>(null);
+  const [remoteJidMensagens, setRemoteJidMensagens] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [busca, setBusca] = useState("");
 
@@ -84,7 +85,7 @@ export default function DashboardPage() {
           return;
         }
         const json = await res.json();
-        const arr = normalizarListaResposta(json?.messages) as MensagemEvolution[];
+        const arr = normalizarListaResposta(json?.records) as MensagemEvolution[];
         setMensagens(arr.slice().reverse());
       } catch {
         setMensagens([]);
@@ -94,10 +95,10 @@ export default function DashboardPage() {
       }
     }
 
-    if (chatSelecionado?.remoteJid) {
-      carregarMensagens(chatSelecionado.remoteJid);
+    if (remoteJidMensagens) {
+      carregarMensagens(remoteJidMensagens);
     }
-  }, [chatSelecionado?.remoteJid]);
+  }, [remoteJidMensagens]);
 
   const chatsFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -128,10 +129,15 @@ export default function DashboardPage() {
             chatsFiltrados.map((c, idx) => {
               const nome = c.name || c.pushName || c.remoteJid || `Chat ${idx + 1}`;
               const ativo = chatSelecionado?.remoteJid && c.remoteJid === chatSelecionado.remoteJid;
+              const jidUltimaMensagem: string | undefined = c?.lastMessage?.key?.remoteJid;
+              const jidParaMensagens = jidUltimaMensagem || c.remoteJid;
               return (
                 <button
                   key={(c.id || c.remoteJid || String(idx)) as string}
-                  onClick={() => setChatSelecionado(c)}
+                  onClick={() => {
+                    setChatSelecionado(c);
+                    setRemoteJidMensagens(jidParaMensagens || null);
+                  }}
                   className={`w-full text-left p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${ativo ? "bg-blue-50" : ""}`}
                 >
                   <div className="flex justify-between items-start">
@@ -172,7 +178,7 @@ export default function DashboardPage() {
                 {chatSelecionado?.name || chatSelecionado?.pushName || chatSelecionado?.remoteJid || "Selecione uma conversa"}
               </h2>
               <span className="text-xs text-gray-500">
-                {chatSelecionado?.remoteJid ? chatSelecionado.remoteJid : ""}
+                {remoteJidMensagens || ""}
               </span>
             </div>
           </div>
@@ -185,7 +191,7 @@ export default function DashboardPage() {
 
         {/* Histórico de Mensagens */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {!chatSelecionado?.remoteJid ? (
+          {!remoteJidMensagens ? (
             <div className="text-sm text-gray-600">Selecione uma conversa para ver o histórico.</div>
           ) : carregandoMensagens ? (
             <div className="text-sm text-gray-600">Carregando mensagens...</div>
