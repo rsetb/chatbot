@@ -13,28 +13,6 @@ const evolutionApi = axios.create({
 
 export class EvolutionService {
   /**
-   * Envia uma mensagem de texto simples
-   */
-  static async sendText(instanceName: string, number: string, text: string) {
-    try {
-      const response = await evolutionApi.post(`/message/sendText/${instanceName}`, {
-        number,
-        options: {
-          delay: 1200,
-          presence: 'composing',
-        },
-        textMessage: {
-          text,
-        },
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Erro ao enviar mensagem via Evolution API:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Envia uma mídia (imagem, documento, vídeo)
    */
   static async sendMedia(instanceName: string, number: string, base64: string, fileName: string, caption?: string) {
@@ -104,6 +82,19 @@ export class EvolutionService {
       return response.data;
     } catch (error) {
       console.error('Erro ao buscar mensagens via Evolution API:', error);
+      throw error;
+    }
+  }
+
+  static async sendText(instanceName: string, number: string, text: string) {
+    try {
+      const response = await evolutionApi.post(`/message/sendText/${instanceName}`, {
+        number,
+        text,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao enviar mensagem via Evolution API:', error);
       throw error;
     }
   }

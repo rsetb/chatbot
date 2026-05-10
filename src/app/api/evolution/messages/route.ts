@@ -23,9 +23,27 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "remoteJid é obrigatório" }, { status: 400 });
     }
 
-    const resposta = await EvolutionService.findMessages(instance, remoteJid, limit);
-    const { total, records } = extrairRegistros(resposta);
-    return NextResponse.json({ ok: true, total, records });
+    const candidatos = Array.from(
+      new Set(
+        [
+          remoteJid,
+          remoteJid.includes("@lid") ? remoteJid.replace("@lid", "@s.whatsapp.net") : null,
+          remoteJid.includes("@lid") ? remoteJid.replace("@lid", "@c.us") : null,
+          remoteJid.includes("@s.whatsapp.net") ? remoteJid.replace("@s.whatsapp.net", "@c.us") : null,
+          !remoteJid.includes("@") ? `${remoteJid}@s.whatsapp.net` : null,
+        ].filter(Boolean) as string[]
+      )
+    );
+
+    for (const candidato of candidatos) {
+      const resposta = await EvolutionService.findMessages(instance, candidato, limit);
+      const { total, records } = extrairRegistros(resposta);
+      if (records.length) {
+        return NextResponse.json({ ok: true, total, records, remoteJidUsado: candidato });
+      }
+    }
+
+    return NextResponse.json({ ok: true, total: 0, records: [], remoteJidUsado: candidatos[0] });
   } catch (error) {
     return NextResponse.json({ ok: false }, { status: 500 });
   }

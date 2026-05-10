@@ -51,6 +51,7 @@ export default function DashboardPage() {
   const [mensagens, setMensagens] = useState<MensagemEvolution[]>([]);
   const [erroMensagens, setErroMensagens] = useState<string | null>(null);
   const [remoteJidMensagens, setRemoteJidMensagens] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
   const [input, setInput] = useState("");
   const [busca, setBusca] = useState("");
 
@@ -72,8 +73,7 @@ export default function DashboardPage() {
     carregarChats();
   }, []);
 
-  useEffect(() => {
-    async function carregarMensagens(remoteJid: string) {
+  const recarregarMensagens = async (remoteJid: string) => {
       setCarregandoMensagens(true);
       setErroMensagens(null);
       try {
@@ -93,11 +93,20 @@ export default function DashboardPage() {
       } finally {
         setCarregandoMensagens(false);
       }
-    }
+    };
 
+  useEffect(() => {
     if (remoteJidMensagens) {
-      carregarMensagens(remoteJidMensagens);
+      recarregarMensagens(remoteJidMensagens);
     }
+  }, [remoteJidMensagens]);
+
+  useEffect(() => {
+    if (!remoteJidMensagens) return;
+    const id = window.setInterval(() => {
+      recarregarMensagens(remoteJidMensagens);
+    }, 7000);
+    return () => window.clearInterval(id);
   }, [remoteJidMensagens]);
 
   const chatsFiltrados = useMemo(() => {
@@ -231,12 +240,64 @@ export default function DashboardPage() {
             type="text" 
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && setInput((v) => v)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void (async () => {
+                  if (!remoteJidMensagens) return;
+                  const texto = input.trim();
+                  if (!texto) return;
+                  setEnviando(true);
+                  try {
+                    const res = await fetch("/api/evolution/send-text", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ instance: "adc", remoteJid: remoteJidMensagens, text: texto }),
+                    });
+                    if (!res.ok) {
+                      setErroMensagens(`Falha ao enviar (HTTP ${res.status}).`);
+                      return;
+                    }
+                    setInput("");
+                    await recarregarMensagens(remoteJidMensagens);
+                  } catch {
+                    setErroMensagens("Falha ao enviar mensagem.");
+                  } finally {
+                    setEnviando(false);
+                  }
+                })();
+              }
+            }}
             placeholder="Digite uma mensagem..." 
             className="flex-1 p-3 border-none bg-gray-100 rounded-lg focus:outline-none"
           />
           <button 
-            onClick={() => setInput("")}
+            disabled={!remoteJidMensagens || enviando}
+            onClick={() => {
+              void (async () => {
+                if (!remoteJidMensagens) return;
+                const texto = input.trim();
+                if (!texto) return;
+                setEnviando(true);
+                try {
+                  const res = await fetch("/api/evolution/send-text", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ instance: "adc", remoteJid: remoteJidMensagens, text: texto }),
+                  });
+                  if (!res.ok) {
+                    setErroMensagens(`Falha ao enviar (HTTP ${res.status}).`);
+                    return;
+                  }
+                  setInput("");
+                  await recarregarMensagens(remoteJidMensagens);
+                } catch {
+                  setErroMensagens("Falha ao enviar mensagem.");
+                } finally {
+                  setEnviando(false);
+                }
+              })();
+            }}
             className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors"
           >
             <Send className="w-5 h-5" />
