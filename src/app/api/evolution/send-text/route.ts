@@ -20,7 +20,7 @@ function normalizarNumeroDestino(body: Body) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
-    const instance = (body.instance || "adc").trim();
+    const instance = (body.instance || process.env.EVOLUTION_INSTANCE_NAME || "adc").trim();
     const text = (body.text || "").trim();
     const number = normalizarNumeroDestino(body);
 

@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import { Send, User, Paperclip, MoreVertical } from "lucide-react";
+import { io, Socket } from "socket.io-client";
+
+const INSTANCE = process.env.NEXT_PUBLIC_EVOLUTION_INSTANCE || "adc";
 
 type ChatEvolution = {
   id?: string;
@@ -55,59 +58,108 @@ export default function DashboardPage() {
   const [input, setInput] = useState("");
   const [busca, setBusca] = useState("");
 
+  // ref para evitar closure stale no socket
+  const remoteJidRef = useRef<string | null>(null);
   useEffect(() => {
-    async function carregarChats() {
-      setCarregandoChats(true);
-      try {
-        const res = await fetch("/api/evolution/chats?instance=adc", { cache: "no-store" });
-        const json = await res.json();
-        const lista = normalizarListaResposta(json?.chats);
-        setChats(lista as ChatEvolution[]);
-      } catch {
-        setChats([]);
-      } finally {
-        setCarregandoChats(false);
-      }
-    }
+    remoteJidRef.current = remoteJidMensagens;
+  }, [remoteJidMensagens]);
 
-    carregarChats();
+  const carregarChats = useCallback(async () => {
+    setCarregandoChats(true);
+    try {
+      const res = await fetch(`/api/evolution/chats?instance=${INSTANCE}`, { cache: "no-store" });
+      const json = await res.json();
+      const lista = normalizarListaResposta(json?.chats);
+      setChats(lista as ChatEvolution[]);
+    } catch {
+      setChats([]);
+    } finally {
+      setCarregandoChats(false);
+    }
   }, []);
 
-  const recarregarMensagens = async (remoteJid: string) => {
-      setCarregandoMensagens(true);
-      setErroMensagens(null);
-      try {
-        const url = `/api/evolution/messages?instance=adc&remoteJid=${encodeURIComponent(remoteJid)}&limit=50`;
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) {
-          setMensagens([]);
-          setErroMensagens(`Falha ao buscar mensagens (HTTP ${res.status}).`);
-          return;
-        }
-        const json = await res.json();
-        const arr = normalizarListaResposta(json?.records) as MensagemEvolution[];
-        setMensagens(arr.slice().reverse());
-      } catch {
+  const recarregarMensagens = useCallback(async (remoteJid: string) => {
+    setCarregandoMensagens(true);
+    setErroMensagens(null);
+    try {
+      const url = `/api/evolution/messages?instance=${INSTANCE}&remoteJid=${encodeURIComponent(remoteJid)}&limit=50`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
         setMensagens([]);
-        setErroMensagens("Falha ao buscar mensagens.");
-      } finally {
-        setCarregandoMensagens(false);
+        setErroMensagens(`Falha ao buscar mensagens (HTTP ${res.status}).`);
+        return;
       }
-    };
-
-  useEffect(() => {
-    if (remoteJidMensagens) {
-      recarregarMensagens(remoteJidMensagens);
+      const json = await res.json();
+      const arr = normalizarListaResposta(json?.records) as MensagemEvolution[];
+      setMensagens(arr.slice().reverse());
+    } catch {
+      setMensagens([]);
+      setErroMensagens("Falha ao buscar mensagens.");
+    } finally {
+      setCarregandoMensagens(false);
     }
-  }, [remoteJidMensagens]);
+  }, []);
 
+  // Carga inicial dos chats
+  useEffect(() => {
+    carregarChats();
+  }, [carregarChats]);
+
+  // Carregar mensagens ao selecionar chat
+  useEffect(() => {
+    if (remoteJidMensagens) recarregarMensagens(remoteJidMensagens);
+  }, [remoteJidMensagens, recarregarMensagens]);
+
+  // Polling de fallback a cada 30s (caso socket.io não receba o evento)
   useEffect(() => {
     if (!remoteJidMensagens) return;
-    const id = window.setInterval(() => {
-      recarregarMensagens(remoteJidMensagens);
-    }, 7000);
+    const id = window.setInterval(() => recarregarMensagens(remoteJidMensagens), 30000);
     return () => window.clearInterval(id);
-  }, [remoteJidMensagens]);
+  }, [remoteJidMensagens, recarregarMensagens]);
+
+  // Socket.io — tempo real
+  useEffect(() => {
+    const socket: Socket = io({ transports: ["websocket", "polling"] });
+
+    socket.on("globalUpdate", ({ contact }: { contact?: { number?: string } }) => {
+      // Atualiza lista de chats
+      carregarChats();
+      // Se a mensagem for do chat ativo, atualiza mensagens
+      const jid = remoteJidRef.current;
+      if (jid && contact?.number && jid.includes(contact.number)) {
+        recarregarMensagens(jid);
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [carregarChats, recarregarMensagens]);
+
+  // Envio de mensagem (lógica única)
+  const enviarMensagem = useCallback(async () => {
+    if (!remoteJidMensagens) return;
+    const texto = input.trim();
+    if (!texto) return;
+    setEnviando(true);
+    try {
+      const res = await fetch("/api/evolution/send-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instance: INSTANCE, remoteJid: remoteJidMensagens, text: texto }),
+      });
+      if (!res.ok) {
+        setErroMensagens(`Falha ao enviar (HTTP ${res.status}).`);
+        return;
+      }
+      setInput("");
+      await recarregarMensagens(remoteJidMensagens);
+    } catch {
+      setErroMensagens("Falha ao enviar mensagem.");
+    } finally {
+      setEnviando(false);
+    }
+  }, [input, remoteJidMensagens, recarregarMensagens]);
 
   const chatsFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -120,12 +172,12 @@ export default function DashboardPage() {
 
   return (
     <div className="flex h-full">
-      {/* Sidebar de Tickets (Lista de conversas) */}
+      {/* Sidebar de Tickets */}
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-4 border-b border-gray-200">
-          <input 
-            type="text" 
-            placeholder="Buscar conversas..." 
+          <input
+            type="text"
+            placeholder="Buscar conversas..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
@@ -186,9 +238,7 @@ export default function DashboardPage() {
               <h2 className="font-semibold text-gray-800">
                 {chatSelecionado?.name || chatSelecionado?.pushName || chatSelecionado?.remoteJid || "Selecione uma conversa"}
               </h2>
-              <span className="text-xs text-gray-500">
-                {remoteJidMensagens || ""}
-              </span>
+              <span className="text-xs text-gray-500">{remoteJidMensagens || ""}</span>
             </div>
           </div>
           <div className="flex gap-4">
@@ -236,69 +286,23 @@ export default function DashboardPage() {
           <button className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100">
             <Paperclip className="w-5 h-5" />
           </button>
-          <input 
-            type="text" 
+          <input
+            type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                void (async () => {
-                  if (!remoteJidMensagens) return;
-                  const texto = input.trim();
-                  if (!texto) return;
-                  setEnviando(true);
-                  try {
-                    const res = await fetch("/api/evolution/send-text", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ instance: "adc", remoteJid: remoteJidMensagens, text: texto }),
-                    });
-                    if (!res.ok) {
-                      setErroMensagens(`Falha ao enviar (HTTP ${res.status}).`);
-                      return;
-                    }
-                    setInput("");
-                    await recarregarMensagens(remoteJidMensagens);
-                  } catch {
-                    setErroMensagens("Falha ao enviar mensagem.");
-                  } finally {
-                    setEnviando(false);
-                  }
-                })();
+                void enviarMensagem();
               }
             }}
-            placeholder="Digite uma mensagem..." 
+            placeholder="Digite uma mensagem..."
             className="flex-1 p-3 border-none bg-gray-100 rounded-lg focus:outline-none"
           />
-          <button 
+          <button
             disabled={!remoteJidMensagens || enviando}
-            onClick={() => {
-              void (async () => {
-                if (!remoteJidMensagens) return;
-                const texto = input.trim();
-                if (!texto) return;
-                setEnviando(true);
-                try {
-                  const res = await fetch("/api/evolution/send-text", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ instance: "adc", remoteJid: remoteJidMensagens, text: texto }),
-                  });
-                  if (!res.ok) {
-                    setErroMensagens(`Falha ao enviar (HTTP ${res.status}).`);
-                    return;
-                  }
-                  setInput("");
-                  await recarregarMensagens(remoteJidMensagens);
-                } catch {
-                  setErroMensagens("Falha ao enviar mensagem.");
-                } finally {
-                  setEnviando(false);
-                }
-              })();
-            }}
-            className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors"
+            onClick={() => void enviarMensagem()}
+            className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
             <Send className="w-5 h-5" />
           </button>

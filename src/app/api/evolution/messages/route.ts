@@ -15,7 +15,7 @@ function extrairRegistros(resposta: any) {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const instance = searchParams.get("instance") || "adc";
+    const instance = searchParams.get("instance") || process.env.EVOLUTION_INSTANCE_NAME || "adc";
     const remoteJid = searchParams.get("remoteJid");
     const limit = Number(searchParams.get("limit") || "50");
 

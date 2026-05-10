@@ -90,7 +90,7 @@ export async function POST(req: Request) {
       const io = (global as any).io;
       if (io) {
         io.to(`ticket-${ticket.id}`).emit('newMessage', { ticket, message, contact });
-        io.emit('globalUpdate', { ticket, message }); // para atualizar a lista de conversas
+        io.emit('globalUpdate', { ticket, message, contact });
       }
     }
 
