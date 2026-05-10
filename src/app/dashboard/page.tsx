@@ -149,7 +149,13 @@ export default function DashboardPage() {
         body: JSON.stringify({ instance: INSTANCE, remoteJid: remoteJidMensagens, text: texto }),
       });
       if (!res.ok) {
-        setErroMensagens(`Falha ao enviar (HTTP ${res.status}).`);
+        const json = await res.json().catch(() => null);
+        const detalhe = json?.error
+          ? typeof json.error === "string"
+            ? json.error
+            : JSON.stringify(json.error)
+          : `HTTP ${res.status}`;
+        setErroMensagens(`Falha ao enviar: ${detalhe}`);
         return;
       }
       setInput("");

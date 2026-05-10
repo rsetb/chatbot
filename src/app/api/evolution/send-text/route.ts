@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { EvolutionService } from "@/services/evolution";
+import axios from "axios";
 
 type Body = {
   instance?: string;
@@ -8,13 +9,12 @@ type Body = {
   text?: string;
 };
 
-function normalizarNumeroDestino(body: Body) {
+function normalizarNumeroDestino(body: Body): string | null {
+  // Prefere o campo number se vier explicitamente
   if (body.number && typeof body.number === "string") return body.number.trim();
+  // Usa o remoteJid completo (inclui @lid, @s.whatsapp.net, @g.us, etc.)
   const remoteJid = (body.remoteJid || "").trim();
-  if (!remoteJid) return null;
-
-  if (remoteJid.includes("@")) return remoteJid.split("@")[0];
-  return remoteJid;
+  return remoteJid || null;
 }
 
 export async function POST(req: Request) {
@@ -34,7 +34,15 @@ export async function POST(req: Request) {
     const resposta = await EvolutionService.sendText(instance, number, text);
     return NextResponse.json({ ok: true, resposta });
   } catch (error) {
-    return NextResponse.json({ ok: false }, { status: 500 });
+    // Extrai mensagem de erro da Evolution API se disponível
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status ?? 500;
+      const detail = error.response?.data ?? error.message;
+      console.error("Erro Evolution API send-text:", status, JSON.stringify(detail));
+      return NextResponse.json({ ok: false, error: detail }, { status });
+    }
+    const msg = error instanceof Error ? error.message : "Erro interno";
+    console.error("Erro send-text:", msg);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
-
