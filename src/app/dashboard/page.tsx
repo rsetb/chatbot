@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useMemo, useState } from "react";
-import { Send, User, Paperclip, MoreVertical } from "lucide-react";
+import { Send, Paperclip, MoreVertical, ArrowLeftRight, X } from "lucide-react";
 import { io, Socket } from "socket.io-client";
 
 const INSTANCE = process.env.NEXT_PUBLIC_EVOLUTION_INSTANCE || "adc";
@@ -22,6 +22,8 @@ type MensagemEvolution = {
   pushName?: string;
   message?: any;
 };
+
+type Agent = { id: string; name: string; email: string; role: string };
 
 function normalizarListaResposta(valor: any): any[] {
   if (Array.isArray(valor)) return valor;
@@ -46,6 +48,108 @@ function extrairTextoMensagem(m: MensagemEvolution): string {
   );
 }
 
+function iniciais(nome: string) {
+  return nome
+    .split(" ")
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+// Avatar com foto ou iniciais
+function Avatar({ nome, foto, size = "md" }: { nome: string; foto?: string | null; size?: "sm" | "md" }) {
+  const [erro, setErro] = useState(false);
+  const px = size === "sm" ? "w-9 h-9 text-xs" : "w-10 h-10 text-sm";
+  if (foto && !erro) {
+    return (
+      <img
+        src={foto}
+        alt={nome}
+        onError={() => setErro(true)}
+        className={`${px} rounded-full object-cover flex-shrink-0`}
+      />
+    );
+  }
+  return (
+    <div className={`${px} rounded-full bg-blue-100 text-blue-700 font-semibold flex items-center justify-center flex-shrink-0`}>
+      {iniciais(nome) || "?"}
+    </div>
+  );
+}
+
+// Modal de transferência
+function ModalTransferir({
+  remoteJid,
+  onClose,
+}: {
+  remoteJid: string;
+  onClose: () => void;
+}) {
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [transferindo, setTransferindo] = useState<string | null>(null);
+  const [sucesso, setSucesso] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/agents")
+      .then((r) => r.json())
+      .then((j) => setAgents(Array.isArray(j) ? j : []))
+      .catch(() => {});
+  }, []);
+
+  async function transferir(agentId: string) {
+    setTransferindo(agentId);
+    try {
+      await fetch("/api/tickets/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ remoteJid, agentId }),
+      });
+      setSucesso(true);
+      setTimeout(onClose, 1200);
+    } finally {
+      setTransferindo(null);
+    }
+  }
+
+  const roleLabel: Record<string, string> = { ADMIN: "Admin", SUPERVISOR: "Supervisor", AGENT: "Agente" };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-zinc-900">Transferir atendimento</h2>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {sucesso ? (
+          <p className="text-green-600 text-sm py-4 text-center">Transferido com sucesso!</p>
+        ) : agents.length ? (
+          <div className="space-y-2">
+            {agents.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => void transferir(a.id)}
+                disabled={transferindo === a.id}
+                className="w-full flex items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-left hover:bg-zinc-50 disabled:opacity-50"
+              >
+                <Avatar nome={a.name} size="sm" />
+                <div>
+                  <p className="text-sm font-medium text-zinc-900">{a.name}</p>
+                  <p className="text-xs text-zinc-500">{roleLabel[a.role] ?? a.role}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-500 py-4 text-center">Nenhum agente encontrado.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [carregandoChats, setCarregandoChats] = useState(false);
   const [chats, setChats] = useState<ChatEvolution[]>([]);
@@ -57,14 +161,12 @@ export default function DashboardPage() {
   const [enviando, setEnviando] = useState(false);
   const [input, setInput] = useState("");
   const [busca, setBusca] = useState("");
+  const [fotoPerfil, setFotoPerfil] = useState<string | null>(null);
+  const [modalTransferir, setModalTransferir] = useState(false);
 
-  // ref para evitar closure stale no socket
   const remoteJidRef = useRef<string | null>(null);
-  useEffect(() => {
-    remoteJidRef.current = remoteJidMensagens;
-  }, [remoteJidMensagens]);
+  useEffect(() => { remoteJidRef.current = remoteJidMensagens; }, [remoteJidMensagens]);
 
-  // ref para auto-scroll ao final das mensagens
   const mensagensEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -75,8 +177,7 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`/api/evolution/chats?instance=${INSTANCE}`, { cache: "no-store" });
       const json = await res.json();
-      const lista = normalizarListaResposta(json?.chats);
-      setChats(lista as ChatEvolution[]);
+      setChats(normalizarListaResposta(json?.chats) as ChatEvolution[]);
     } catch {
       setChats([]);
     } finally {
@@ -106,43 +207,43 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Carga inicial dos chats
-  useEffect(() => {
-    carregarChats();
-  }, [carregarChats]);
+  useEffect(() => { carregarChats(); }, [carregarChats]);
 
-  // Carregar mensagens ao selecionar chat
   useEffect(() => {
     if (remoteJidMensagens) recarregarMensagens(remoteJidMensagens);
   }, [remoteJidMensagens, recarregarMensagens]);
 
-  // Polling de fallback a cada 30s (caso socket.io não receba o evento)
+  // Polling de fallback 7s
   useEffect(() => {
     if (!remoteJidMensagens) return;
     const id = window.setInterval(() => recarregarMensagens(remoteJidMensagens), 7000);
     return () => window.clearInterval(id);
   }, [remoteJidMensagens, recarregarMensagens]);
 
-  // Socket.io — tempo real
+  // Socket.io tempo real
   useEffect(() => {
     const socket: Socket = io({ transports: ["websocket", "polling"] });
-
     socket.on("globalUpdate", ({ contact }: { contact?: { number?: string } }) => {
-      // Atualiza lista de chats
       carregarChats();
-      // Se a mensagem for do chat ativo, atualiza mensagens
       const jid = remoteJidRef.current;
       if (jid && contact?.number && jid.includes(contact.number)) {
         recarregarMensagens(jid);
       }
     });
-
-    return () => {
-      socket.disconnect();
-    };
+    return () => { socket.disconnect(); };
   }, [carregarChats, recarregarMensagens]);
 
-  // Envio de mensagem (lógica única)
+  // Busca foto de perfil ao selecionar chat
+  useEffect(() => {
+    setFotoPerfil(null);
+    if (!remoteJidMensagens) return;
+    const num = remoteJidMensagens.includes("@") ? remoteJidMensagens.split("@")[0] : remoteJidMensagens;
+    fetch(`/api/evolution/profile-picture?instance=${INSTANCE}&number=${encodeURIComponent(num)}`)
+      .then((r) => r.json())
+      .then((j) => setFotoPerfil(j.url ?? null))
+      .catch(() => {});
+  }, [remoteJidMensagens]);
+
   const enviarMensagem = useCallback(async () => {
     if (!remoteJidMensagens) return;
     const texto = input.trim();
@@ -157,9 +258,7 @@ export default function DashboardPage() {
       if (!res.ok) {
         const json = await res.json().catch(() => null);
         const detalhe = json?.error
-          ? typeof json.error === "string"
-            ? json.error
-            : JSON.stringify(json.error)
+          ? typeof json.error === "string" ? json.error : JSON.stringify(json.error)
           : `HTTP ${res.status}`;
         setErroMensagens(`Falha ao enviar: ${detalhe}`);
         return;
@@ -182,9 +281,15 @@ export default function DashboardPage() {
     });
   }, [busca, chats]);
 
+  const nomeChat = chatSelecionado?.name || chatSelecionado?.pushName || chatSelecionado?.remoteJid || "Selecione uma conversa";
+
   return (
     <div className="flex h-full">
-      {/* Sidebar de Tickets */}
+      {modalTransferir && remoteJidMensagens && (
+        <ModalTransferir remoteJid={remoteJidMensagens} onClose={() => setModalTransferir(false)} />
+      )}
+
+      {/* Sidebar */}
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
         <div className="p-4 border-b border-gray-200">
           <input
@@ -202,8 +307,7 @@ export default function DashboardPage() {
             chatsFiltrados.map((c, idx) => {
               const nome = c.name || c.pushName || c.remoteJid || `Chat ${idx + 1}`;
               const ativo = chatSelecionado?.remoteJid && c.remoteJid === chatSelecionado.remoteJid;
-              const jidUltimaMensagem: string | undefined = c?.lastMessage?.key?.remoteJid;
-              const jidParaMensagens = jidUltimaMensagem || c.remoteJid;
+              const jidParaMensagens = c?.lastMessage?.key?.remoteJid || c.remoteJid;
               return (
                 <button
                   key={(c.id || c.remoteJid || String(idx)) as string}
@@ -211,24 +315,25 @@ export default function DashboardPage() {
                     setChatSelecionado(c);
                     setRemoteJidMensagens(jidParaMensagens || null);
                   }}
-                  className={`w-full text-left p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${ativo ? "bg-blue-50" : ""}`}
+                  className={`w-full text-left p-4 border-b border-gray-100 hover:bg-gray-50 flex items-center gap-3 ${ativo ? "bg-blue-50" : ""}`}
                 >
-                  <div className="flex justify-between items-start">
-                    <h4 className="font-semibold text-gray-800">{nome}</h4>
-                    {typeof c.unreadCount === "number" && c.unreadCount > 0 ? (
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                        {c.unreadCount}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-500">&nbsp;</span>
-                    )}
+                  <Avatar nome={nome} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-start">
+                      <h4 className="font-semibold text-gray-800 truncate">{nome}</h4>
+                      {typeof c.unreadCount === "number" && c.unreadCount > 0 && (
+                        <span className="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-full ml-1 flex-shrink-0">
+                          {c.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500 truncate mt-0.5">
+                      {c.lastMessage?.message?.conversation ||
+                        c.lastMessage?.message?.extendedTextMessage?.text ||
+                        c.lastMessage?.message?.imageMessage?.caption ||
+                        ""}
+                    </p>
                   </div>
-                  <p className="text-sm text-gray-600 truncate mt-1">
-                    {c.lastMessage?.message?.conversation ||
-                      c.lastMessage?.message?.extendedTextMessage?.text ||
-                      c.lastMessage?.message?.imageMessage?.caption ||
-                      ""}
-                  </p>
                 </button>
               );
             })
@@ -238,36 +343,42 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Área Principal de Chat */}
+      {/* Área de Chat */}
       <div className="flex-1 flex flex-col bg-[#efeae2]">
-        {/* Header do Chat */}
+        {/* Header */}
         <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-              <User className="text-gray-500" />
-            </div>
+            <Avatar nome={nomeChat} foto={fotoPerfil} />
             <div>
-              <h2 className="font-semibold text-gray-800">
-                {chatSelecionado?.name || chatSelecionado?.pushName || chatSelecionado?.remoteJid || "Selecione uma conversa"}
-              </h2>
-              <span className="text-xs text-gray-500">{remoteJidMensagens || ""}</span>
+              <h2 className="font-semibold text-gray-800">{nomeChat}</h2>
+              <span className="text-xs text-gray-400">{remoteJidMensagens || ""}</span>
             </div>
           </div>
-          <div className="flex gap-4">
-            <button className="text-gray-500 hover:text-gray-700">
-              <MoreVertical />
+          <div className="flex items-center gap-2">
+            {remoteJidMensagens && (
+              <button
+                onClick={() => setModalTransferir(true)}
+                title="Transferir atendimento"
+                className="flex items-center gap-1.5 text-xs text-zinc-600 border border-zinc-200 rounded-lg px-3 py-1.5 hover:bg-zinc-50"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5" />
+                Transferir
+              </button>
+            )}
+            <button className="text-gray-500 hover:text-gray-700 p-1">
+              <MoreVertical className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Histórico de Mensagens */}
+        {/* Mensagens */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {!remoteJidMensagens ? (
-            <div className="text-sm text-gray-600">Selecione uma conversa para ver o histórico.</div>
+            <div className="text-sm text-gray-500">Selecione uma conversa para ver o histórico.</div>
           ) : carregandoMensagens ? (
-            <div className="text-sm text-gray-600">Carregando mensagens...</div>
+            <div className="text-sm text-gray-500">Carregando mensagens...</div>
           ) : erroMensagens ? (
-            <div className="text-sm text-red-700">{erroMensagens}</div>
+            <div className="text-sm text-red-600">{erroMensagens}</div>
           ) : mensagens.length ? (
             mensagens.map((m, idx) => {
               const fromMe = Boolean(m.key?.fromMe);
@@ -276,12 +387,12 @@ export default function DashboardPage() {
               return (
                 <div key={m.key?.id || String(idx)} className={`flex ${fromMe ? "justify-end" : "justify-start"}`}>
                   <div
-                    className={`p-3 rounded-lg shadow-sm max-w-md ${
+                    className={`p-3 rounded-lg shadow-sm max-w-md text-sm ${
                       fromMe ? "bg-[#d9fdd3] rounded-tr-none" : "bg-white rounded-tl-none"
                     }`}
                   >
-                    <p className="text-gray-800">{texto}</p>
-                    <span className="text-[10px] text-gray-500 mt-1 block text-right">
+                    <p className="text-gray-800 whitespace-pre-wrap">{texto}</p>
+                    <span className="text-[10px] text-gray-400 mt-1 block text-right">
                       {ts ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
                     </span>
                   </div>
@@ -289,28 +400,23 @@ export default function DashboardPage() {
               );
             })
           ) : (
-            <div className="text-sm text-gray-600">Nenhuma mensagem encontrada para esta conversa.</div>
+            <div className="text-sm text-gray-500">Nenhuma mensagem encontrada.</div>
           )}
           <div ref={mensagensEndRef} />
         </div>
 
-        {/* Área de Input */}
+        {/* Input */}
         <div className="bg-white p-4 border-t border-gray-200 flex items-center gap-3">
-          <button className="text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-100">
+          <button className="text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100">
             <Paperclip className="w-5 h-5" />
           </button>
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                void enviarMensagem();
-              }
-            }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void enviarMensagem(); } }}
             placeholder="Digite uma mensagem..."
-            className="flex-1 p-3 border-none bg-gray-100 rounded-lg focus:outline-none"
+            className="flex-1 p-3 border-none bg-gray-100 rounded-lg focus:outline-none text-sm"
           />
           <button
             disabled={!remoteJidMensagens || enviando}
