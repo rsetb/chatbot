@@ -44,7 +44,18 @@ function extrairTextoMensagem(m: MensagemEvolution): string {
     msg.imageMessage?.caption ||
     msg.videoMessage?.caption ||
     msg.documentMessage?.caption ||
-    "[mensagem]"
+    msg.documentWithCaptionMessage?.message?.documentMessage?.caption ||
+    (msg.audioMessage ? "🎵 Áudio" : null) ||
+    (msg.stickerMessage ? "🎭 Sticker" : null) ||
+    (msg.imageMessage ? "📷 Imagem" : null) ||
+    (msg.videoMessage ? "🎬 Vídeo" : null) ||
+    (msg.documentMessage ? "📎 Documento" : null) ||
+    (msg.locationMessage ? "📍 Localização" : null) ||
+    (msg.contactMessage ? `👤 ${msg.contactMessage.displayName ?? "Contato"}` : null) ||
+    (msg.pollCreationMessage ? `📊 Enquete: ${msg.pollCreationMessage.name ?? ""}` : null) ||
+    (msg.reactionMessage ? `${msg.reactionMessage.text ?? "👍"} Reação` : null) ||
+    (msg.protocolMessage ? null : null) ||
+    "📎 Mídia"
   );
 }
 
@@ -169,7 +180,7 @@ export default function DashboardPage() {
 
   const mensagensEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    mensagensEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    mensagensEndRef.current?.scrollIntoView({ behavior: "instant" as ScrollBehavior });
   }, [mensagens]);
 
   const carregarChats = useCallback(async () => {
