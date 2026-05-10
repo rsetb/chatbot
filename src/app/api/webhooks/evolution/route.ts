@@ -39,6 +39,12 @@ export async function POST(req: Request) {
             name: messageData.pushName || number,
           },
         });
+      } else if (messageData.pushName && contact.name !== messageData.pushName) {
+        // Atualiza o nome quando pushName chegar diferente do registrado
+        contact = await prisma.contact.update({
+          where: { id: contact.id },
+          data: { name: messageData.pushName },
+        });
       }
 
       // 2. Verificar a instância

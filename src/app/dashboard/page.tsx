@@ -20,6 +20,7 @@ type MensagemEvolution = {
   key?: { id?: string; remoteJid?: string; fromMe?: boolean };
   messageTimestamp?: number;
   pushName?: string;
+  messageType?: string;
   message?: any;
 };
 
@@ -36,8 +37,23 @@ function normalizarListaResposta(valor: any): any[] {
   return [];
 }
 
+const TIPO_LABEL: Record<string, string> = {
+  audioMessage: "🎵 Áudio",
+  imageMessage: "📷 Imagem",
+  videoMessage: "🎬 Vídeo",
+  documentMessage: "📎 Documento",
+  documentWithCaptionMessage: "📎 Documento",
+  stickerMessage: "🎭 Sticker",
+  locationMessage: "📍 Localização",
+  contactMessage: "👤 Contato",
+  pollCreationMessage: "📊 Enquete",
+  reactionMessage: "👍 Reação",
+  protocolMessage: "",
+};
+
 function extrairTextoMensagem(m: MensagemEvolution): string {
   const msg = m.message || {};
+  const tipo = m.messageType;
   return (
     msg.conversation ||
     msg.extendedTextMessage?.text ||
@@ -54,8 +70,8 @@ function extrairTextoMensagem(m: MensagemEvolution): string {
     (msg.contactMessage ? `👤 ${msg.contactMessage.displayName ?? "Contato"}` : null) ||
     (msg.pollCreationMessage ? `📊 Enquete: ${msg.pollCreationMessage.name ?? ""}` : null) ||
     (msg.reactionMessage ? `${msg.reactionMessage.text ?? "👍"} Reação` : null) ||
-    (msg.protocolMessage ? null : null) ||
-    "📎 Mídia"
+    // Fallback: messageType field present when message body is empty in DB
+    (tipo ? (TIPO_LABEL[tipo] ?? "📎 Mídia") : "📎 Mídia")
   );
 }
 
@@ -339,10 +355,7 @@ export default function DashboardPage() {
                       )}
                     </div>
                     <p className="text-sm text-gray-500 truncate mt-0.5">
-                      {c.lastMessage?.message?.conversation ||
-                        c.lastMessage?.message?.extendedTextMessage?.text ||
-                        c.lastMessage?.message?.imageMessage?.caption ||
-                        ""}
+                      {c.lastMessage ? extrairTextoMensagem(c.lastMessage as MensagemEvolution) : ""}
                     </p>
                   </div>
                 </button>
