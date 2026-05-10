@@ -9,11 +9,22 @@ const evolutionApi = axios.create({
   },
 });
 
+function normalizarLista(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    const d = data as Record<string, unknown>;
+    if (Array.isArray(d.instances)) return d.instances;
+    if (Array.isArray(d.data)) return d.data;
+    return [data];
+  }
+  return [];
+}
+
 export async function GET() {
   try {
     const resp = await evolutionApi.get("/instance/fetchInstances");
-    const lista = Array.isArray(resp.data) ? resp.data : [resp.data];
-    return NextResponse.json({ ok: true, instances: lista });
+    const lista = normalizarLista(resp.data);
+    return NextResponse.json({ ok: true, instances: lista, raw: resp.data });
   } catch (e) {
     if (axios.isAxiosError(e))
       return NextResponse.json({ ok: false, erro: e.response?.data ?? e.message }, { status: 500 });

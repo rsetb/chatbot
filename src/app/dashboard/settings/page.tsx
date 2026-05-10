@@ -6,10 +6,17 @@ import { Plus, Trash2, RefreshCw, Wifi, WifiOff, QrCode, Users, Webhook } from "
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Instance = {
+  // nested instance object (Evolution API v1/v2 legacy)
   instance?: { instanceName?: string; status?: string; state?: string };
+  // flat fields (Evolution API v2 DB format)
   instanceName?: string;
+  name?: string;
   status?: string;
   state?: string;
+  connectionStatus?: string | { state?: string; status?: string };
+  key?: { instanceName?: string; remoteJid?: string };
+  // any other unknown fields
+  [key: string]: unknown;
 };
 
 type User = {
@@ -22,12 +29,27 @@ type User = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function instanceName(i: Instance) {
-  return i.instance?.instanceName ?? i.instanceName ?? "—";
+function instanceName(i: Instance): string {
+  return (
+    i.instance?.instanceName ??
+    i.instanceName ??
+    i.name ??
+    (i.key?.instanceName as string | undefined) ??
+    "—"
+  );
 }
 
-function instanceState(i: Instance) {
-  return (i.instance?.state ?? i.instance?.status ?? i.state ?? i.status ?? "").toLowerCase();
+function instanceState(i: Instance): string {
+  const cs = i.connectionStatus;
+  const csStr = typeof cs === "string" ? cs : (cs?.state ?? cs?.status ?? "");
+  return (
+    i.instance?.state ??
+    i.instance?.status ??
+    i.state ??
+    i.status ??
+    csStr ??
+    ""
+  ).toLowerCase();
 }
 
 // ─── QR Modal ────────────────────────────────────────────────────────────────
@@ -101,6 +123,7 @@ function QrModal({ name, onClose }: { name: string; onClose: () => void }) {
 
 function AbaInstancias() {
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [rawData, setRawData] = useState<unknown>(null);
   const [carregando, setCarregando] = useState(false);
   const [novoNome, setNovoNome] = useState("");
   const [criando, setCriando] = useState(false);
@@ -113,6 +136,7 @@ function AbaInstancias() {
       const res = await fetch("/api/evolution/instances");
       const json = await res.json();
       setInstances(json.instances ?? []);
+      setRawData(json.raw ?? null);
     } catch {
       setErro("Erro ao carregar instâncias.");
     } finally {
@@ -153,6 +177,14 @@ function AbaInstancias() {
   return (
     <div className="space-y-6">
       {qrInstance && <QrModal name={qrInstance} onClose={() => { setQrInstance(null); carregar(); }} />}
+
+      {/* Debug: raw API response */}
+      {rawData !== null && (
+        <details className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs">
+          <summary className="cursor-pointer font-semibold text-amber-800 mb-2">Debug: resposta bruta da Evolution API</summary>
+          <pre className="overflow-auto max-h-60 text-amber-900 whitespace-pre-wrap break-all">{JSON.stringify(rawData, null, 2)}</pre>
+        </details>
+      )}
 
       {/* Criar nova instância */}
       <div className="rounded-xl border border-zinc-200 bg-white p-4">
