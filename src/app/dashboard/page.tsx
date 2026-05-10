@@ -20,6 +20,17 @@ type MensagemEvolution = {
   message?: any;
 };
 
+function normalizarListaResposta(valor: any): any[] {
+  if (Array.isArray(valor)) return valor;
+  if (!valor || typeof valor !== "object") return [];
+  if (Array.isArray(valor.data)) return valor.data;
+  if (Array.isArray(valor.messages)) return valor.messages;
+  if (Array.isArray(valor.chats)) return valor.chats;
+  if (valor.response && Array.isArray(valor.response)) return valor.response;
+  if (valor.response && Array.isArray(valor.response.data)) return valor.response.data;
+  return [];
+}
+
 function extrairTextoMensagem(m: MensagemEvolution): string {
   const msg = m.message || {};
   return (
@@ -38,6 +49,7 @@ export default function DashboardPage() {
   const [chatSelecionado, setChatSelecionado] = useState<ChatEvolution | null>(null);
   const [carregandoMensagens, setCarregandoMensagens] = useState(false);
   const [mensagens, setMensagens] = useState<MensagemEvolution[]>([]);
+  const [erroMensagens, setErroMensagens] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [busca, setBusca] = useState("");
 
@@ -47,8 +59,8 @@ export default function DashboardPage() {
       try {
         const res = await fetch("/api/evolution/chats?instance=adc", { cache: "no-store" });
         const json = await res.json();
-        const lista = Array.isArray(json?.chats) ? json.chats : json?.chats?.data || json?.chats || [];
-        setChats(Array.isArray(lista) ? lista : []);
+        const lista = normalizarListaResposta(json?.chats);
+        setChats(lista as ChatEvolution[]);
       } catch {
         setChats([]);
       } finally {
@@ -62,15 +74,21 @@ export default function DashboardPage() {
   useEffect(() => {
     async function carregarMensagens(remoteJid: string) {
       setCarregandoMensagens(true);
+      setErroMensagens(null);
       try {
         const url = `/api/evolution/messages?instance=adc&remoteJid=${encodeURIComponent(remoteJid)}&limit=50`;
         const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) {
+          setMensagens([]);
+          setErroMensagens(`Falha ao buscar mensagens (HTTP ${res.status}).`);
+          return;
+        }
         const json = await res.json();
-        const lista = Array.isArray(json?.messages) ? json.messages : json?.messages?.data || json?.messages || [];
-        const arr = Array.isArray(lista) ? (lista as MensagemEvolution[]) : [];
+        const arr = normalizarListaResposta(json?.messages) as MensagemEvolution[];
         setMensagens(arr.slice().reverse());
       } catch {
         setMensagens([]);
+        setErroMensagens("Falha ao buscar mensagens.");
       } finally {
         setCarregandoMensagens(false);
       }
@@ -171,6 +189,8 @@ export default function DashboardPage() {
             <div className="text-sm text-gray-600">Selecione uma conversa para ver o histórico.</div>
           ) : carregandoMensagens ? (
             <div className="text-sm text-gray-600">Carregando mensagens...</div>
+          ) : erroMensagens ? (
+            <div className="text-sm text-red-700">{erroMensagens}</div>
           ) : mensagens.length ? (
             mensagens.map((m, idx) => {
               const fromMe = Boolean(m.key?.fromMe);

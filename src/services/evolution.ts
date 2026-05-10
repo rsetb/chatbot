@@ -100,10 +100,6 @@ export class EvolutionService {
             remoteJid,
           },
         },
-        limit,
-        orderBy: {
-          messageTimestamp: 'desc',
-        },
       });
       return response.data;
     } catch (error) {
